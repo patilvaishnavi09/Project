@@ -1,0 +1,54 @@
+import { type NextRequest, NextResponse } from "next/server"
+import { userQueries } from "@/lib/database"
+import { hashPassword, generateToken } from "@/lib/auth"
+
+export async function POST(request: NextRequest) {
+  try {
+    const { username, email, password, role = "user" } = await request.json()
+
+    // Validate input
+    if (!username || !email || !password) {
+      return NextResponse.json({ error: "Username, email, and password are required" }, { status: 400 })
+    }
+
+    // Validate role
+    if (!["admin", "user", "store_owner"].includes(role)) {
+      return NextResponse.json({ error: "Invalid role specified" }, { status: 400 })
+    }
+
+    // Check if user already exists
+    const existingUser = await userQueries.findByEmail(email)
+    if (existingUser) {
+      return NextResponse.json({ error: "User with this email already exists" }, { status: 409 })
+    }
+
+    // Hash password
+    const passwordHash = await hashPassword(password)
+
+    // Create user
+    const newUser = await userQueries.create({
+      username,
+      email,
+      password_hash: passwordHash,
+      role: role as "admin" | "user" | "store_owner",
+    })
+
+    // Generate JWT token
+    const token = generateToken(newUser)
+
+    // Return user data (without password) and token
+    const { password_hash, ...userWithoutPassword } = newUser
+
+    return NextResponse.json(
+      {
+        user: userWithoutPassword,
+        token,
+        message: "Registration successful",
+      },
+      { status: 201 },
+    )
+  } catch (error) {
+    console.error("Registration error:", error)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
